@@ -1,0 +1,15 @@
+logging.level:
+  org.springframework.integration: DEBUG
+  com.broadcom.tanzulabs.tcpdemo: DEBUG
+
+spring:
+  application:
+    name: tcp-demo
+
+  threads:
+    virtual:
+      enabled: true
+
+tcp:
+  server:
+    port: 9876
