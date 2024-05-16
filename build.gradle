@@ -28,8 +28,6 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.integration:spring-integration-test'
 
-	testImplementation 'uk.org.webcompere:model-assert:1.0.0'
-
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
 }
