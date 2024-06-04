@@ -1,5 +1,7 @@
 package com.broadcom.tanzulabs.tcpdemo;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -9,6 +11,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.channel.DirectChannel;
 import org.springframework.integration.dsl.IntegrationFlow;
+import org.springframework.integration.dsl.Transformers;
 import org.springframework.integration.ip.IpHeaders;
 import org.springframework.integration.ip.dsl.Tcp;
 import org.springframework.integration.ip.dsl.TcpNetServerConnectionFactorySpec;
@@ -17,6 +20,7 @@ import org.springframework.integration.ip.tcp.connection.AbstractServerConnectio
 import org.springframework.integration.ip.tcp.connection.TcpConnectionCloseEvent;
 import org.springframework.integration.ip.tcp.connection.TcpConnectionOpenEvent;
 import org.springframework.integration.router.HeaderValueRouter;
+import org.springframework.integration.support.json.Jackson2JsonObjectMapper;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.GenericMessage;
 
@@ -36,6 +40,20 @@ public class TcpConfig {
         private final Map<String, String> clientUsernames = new ConcurrentHashMap<>();
 
         @Bean
+        public ObjectMapper objectMapper() {
+
+            var xmlMapper = new XmlMapper();
+
+            return xmlMapper;
+        }
+
+        @Bean
+        public Jackson2JsonObjectMapper jackson2JsonObjectMapper( ObjectMapper objectMapper ) {
+
+            return new Jackson2JsonObjectMapper( objectMapper );
+        }
+
+        @Bean
         public TcpNetServerConnectionFactorySpec serverConnectionFactory( @Value( "${tcp.server.port:9876}" ) int tcpServerPort ) {
             return Tcp.netServer( tcpServerPort );
         }
@@ -45,9 +63,8 @@ public class TcpConfig {
 
             return IntegrationFlow
                     .from( Tcp.inboundAdapter( serverConnectionFactory ) )
-                    .enrichHeaders( h -> h.headerExpression("type", "#jsonPath(payload, '$.type')" ) )
-                    .enrichHeaders( h -> h.headerExpression("action", "#jsonPath(payload, '$.action')" ) )
-                    .transform( "#jsonPath(payload, '$.payload')" )
+                    .enrichHeaders( h -> h.headerExpression("type", "#xpath(payload, '/root/type')" ) )
+                    .enrichHeaders( h -> h.headerExpression("action", "#xpath(payload, '/root/action')" ) )
                     .route( headerRouter() )
                     .get();
         }
@@ -78,14 +95,16 @@ public class TcpConfig {
         enum Actions { login, logout };
 
         @Bean
-        public IntegrationFlow commandHandler( MessageChannel commandChannel, MessageChannel replyChannel ) {
+        public IntegrationFlow commandHandler( MessageChannel commandChannel, MessageChannel replyChannel, Jackson2JsonObjectMapper jackson2JsonObjectMapper ) {
 
             return IntegrationFlow.from( commandChannel )
-//                    .transform( Transformers.fromJson( Map.class ) )
+                    .transform( Transformers.fromJson( jackson2JsonObjectMapper ) )
                     .handle( Map.class, (p, h) -> {
                         log.info( "handle command message : enter" );
 
-                        log.info( "message: [{}, {}]", h, p );
+                        log.info( "message: headers=[{}], payload=[{}]", h, p );
+                        Map<String, String> payload = (Map<String, String>) p.get( "payload" );
+                        log.info( "payload: [{}]", payload );
 
                         var response = "";
                         var connectionId = (String) h.get( IpHeaders.CONNECTION_ID );
@@ -93,15 +112,15 @@ public class TcpConfig {
                         switch( action ) {
                             case login:
 
-                                this.clientUsernames.putIfAbsent( connectionId, (String) p.get( "username" ) );
+                                this.clientUsernames.putIfAbsent( connectionId, payload.get( "username" ) );
 
                                 response =
                                         """
-                                        {
-                                            'status': 'login succeeded!'
-                                        }
+                                        <root>
+                                            <status>login succeeded!</status>
+                                        </root>
                                         """;
-                                log.info( "login user [{}, {}]", connectionId, p.get( "username" ) );
+                                log.info( "login user [{}, {}]", connectionId, payload.get( "username" ) );
 
                                 break;
 
@@ -111,11 +130,11 @@ public class TcpConfig {
 
                                 response =
                                         """
-                                        {
-                                            'status': 'logout succeeded!'
-                                        }
+                                        <root>
+                                            <status>logout succeeded!</status>
+                                        </root>
                                         """;
-                                log.info( "logout user [{}, {}]", connectionId, p.get( "username" ) );
+                                log.info( "logout user [{}, {}]", connectionId, payload.get( "username" ) );
 
                                 break;
                         }
@@ -128,18 +147,21 @@ public class TcpConfig {
         }
 
         @Bean
-        public IntegrationFlow chatHandler( MessageChannel chatChannel, MessageChannel replyChannel ) {
+        public IntegrationFlow chatHandler( MessageChannel chatChannel, MessageChannel replyChannel, Jackson2JsonObjectMapper jackson2JsonObjectMapper ) {
 
             return IntegrationFlow.from( chatChannel )
-//                    .transform( Transformers.fromJson( Map.class ) )
+                    .transform( Transformers.fromJson( jackson2JsonObjectMapper ) )
                     .handle( Map.class, (p, h) -> {
                         log.info( "handle chat message : enter" );
 
                         log.info( "message: [{}, {}]", h, p );
+                        Map<String, String> payload = (Map<String, String>) p.get( "payload" );
+                        log.info( "payload: [{}]", payload );
+
                         log.info( "clients: [{}]", this.clientUsernames );
 
                         var connectionId = (String) h.get( IpHeaders.CONNECTION_ID );
-                        var to = (String) p.get( "to" );
+                        var to = (String) payload.get( "to" );
                         var from =
                                 this.clientUsernames.entrySet().stream()
                                         .filter( e -> e.getKey().equals( connectionId ) )
@@ -154,17 +176,17 @@ public class TcpConfig {
                                     .findFirst()
                                     .get();
 
-                            var message = (String) p.get( "message" );
+                            var message = (String) payload.get( "message" );
 
                             var responsePayload =
                                     """
-                                    {
-                                        "type": "chatResponse",
-                                        "payload": {
-                                            "from": "%s",
-                                            "message": "%s"
-                                        }
-                                    }
+                                    <root>
+                                        <type>chatResponse</type>
+                                        <payload>
+                                            <from>%s</from>
+                                            <message>%s</message>
+                                        </payload>
+                                    </root>
                                     """.formatted( from.get(), message );
 
                             log.info( "handle chat message : exit" );
@@ -174,10 +196,14 @@ public class TcpConfig {
 
                             log.info( "error sending chat message!" );
                             return """
-                                    {
-                                        'status': 'chat sent!'
-                                    }
-                                    """;
+                                    <root>
+                                        <type>chatResponse</type>
+                                        <payload>
+                                            <from>%s</from>
+                                            <message>chat NOT sent!</message>
+                                        </payload>
+                                    </root>
+                                    """.formatted( from.get() );
 
                         }
                     })

@@ -24,9 +24,18 @@ dependencies {
 
 	// Spring Integration dependencies
 	implementation 'org.springframework.integration:spring-integration-ip'
+	implementation 'org.springframework.integration:spring-integration-xml'
+
+	// Spring dependencies
+	implementation 'org.springframework:spring-oxm'
 
 	// Observability dependencies
 	implementation 'io.micrometer:micrometer-registry-prometheus'
+
+	// Third-party dependencies
+	implementation 'com.fasterxml.jackson.core:jackson-databind'
+	implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-xml'
+	implementation 'com.fasterxml.woodstox:woodstox-core'
 
 	// Test dependencies
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'

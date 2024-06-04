@@ -1,6 +1,8 @@
 package com.broadcom.tanzulabs.tcpdemo;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.xml.XmlMapper;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlProperty;
+import com.fasterxml.jackson.dataformat.xml.annotation.JacksonXmlRootElement;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +24,9 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.test.annotation.DirtiesContext;
 
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamException;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,32 +64,32 @@ public class TcpAsyncBiDirectionalTests {
     QueueChannel client2Output;
 
     @Test
-    void testBothReceive() throws IOException {
+    void testBothReceive() throws IOException, XMLStreamException {
 
         var client1LoginMessage =
                 MessageBuilder.withPayload(
-                            """
-                            {
-                                "type": "command",
-                                "action": "login",
-                                "payload": {
-                                    "username": "client1"
-                                 }
-                            }
-                            """
+                                """
+                                <root>
+                                    <type>command</type>
+                                    <action>login</action>
+                                    <payload>
+                                        <username>client1</username>
+                                    </payload>
+                                </root>
+                                """
                         )
                         .build();
 
         var client1LogoutMessage =
                 MessageBuilder.withPayload(
                                 """
-                                {
-                                    "type": "command",
-                                    "action": "logout",
-                                    "payload": {
-                                        "username": "client1"
-                                     }
-                                }
+                                <root>
+                                    <type>command</type>
+                                    <action>logout</action>
+                                    <payload>
+                                        <username>client1</username>
+                                    </payload>
+                                </root>
                                 """
                         )
                         .build();
@@ -92,13 +97,13 @@ public class TcpAsyncBiDirectionalTests {
         var client2LoginMessage =
                 MessageBuilder.withPayload(
                                 """
-                                {
-                                    "type": "command",
-                                    "action": "login",
-                                    "payload": {
-                                        "username": "client2"
-                                     }
-                                }
+                                <root>
+                                    <type>command</type>
+                                    <action>login</action>
+                                    <payload>
+                                        <username>client2</username>
+                                    </payload>
+                                </root>
                                 """
                         )
                         .build();
@@ -106,13 +111,13 @@ public class TcpAsyncBiDirectionalTests {
         var client2LogoutMessage =
                 MessageBuilder.withPayload(
                                 """
-                                {
-                                    "type": "command",
-                                    "action": "logout",
-                                    "payload": {
-                                        "username": "client2"
-                                     }
-                                }
+                                <root>
+                                    <type>command</type>
+                                    <action>logout</action>
+                                    <payload>
+                                        <username>client2</username>
+                                    </payload>
+                                </root>
                                 """
                         )
                         .build();
@@ -120,18 +125,17 @@ public class TcpAsyncBiDirectionalTests {
         var client1ChatMessage =
                 MessageBuilder.withPayload(
                                 """
-                                {
-                                    "type": "chat",
-                                    "action": "sendMessage",
-                                    "payload": {
-                                        "to": "client2",
-                                        "message": "Hello from client1"
-                                     }
-                                }
+                                <root>
+                                    <type>chat</type>
+                                    <action>sendMessage</action>
+                                    <payload>
+                                        <to>client2</to>
+                                        <message>Hello from client1</message>
+                                    </payload>
+                                </root>
                                 """
                         )
                         .build();
-
 
         client1Channel.send( client1LoginMessage );
         var client1LoginReturnMessage = client1Output.receive( 10000 );
@@ -147,8 +151,10 @@ public class TcpAsyncBiDirectionalTests {
         assertThat( client2ChatReturnMessage.getPayload() ).isInstanceOf( byte[].class );
 
         var bytes = (byte[]) client2ChatReturnMessage.getPayload();
-        var mapper = new ObjectMapper();
-        var client2ChatReturnMessagePayload = (ChatResponse) mapper.reader().forType( ChatResponse.class ).readValue( bytes );
+        var xmlInputFactory = XMLInputFactory.newFactory();
+        var xmlStreamReader = xmlInputFactory.createXMLStreamReader( new ByteArrayInputStream( bytes ) );
+        var mapper = new XmlMapper();
+        var client2ChatReturnMessagePayload = (ChatResponse) mapper.readValue( xmlStreamReader, ChatResponse.class );
         assertThat( client2ChatReturnMessagePayload.payload.from ).isEqualTo( "client1" );
         assertThat( client2ChatReturnMessagePayload.payload.message ).isEqualTo( "Hello from client1" );
 
@@ -162,8 +168,11 @@ public class TcpAsyncBiDirectionalTests {
 
     }
 
-    record ChatResponse( String type, Payload payload ) { }
-    record Payload( String from, String message ) { }
+
+    @JacksonXmlRootElement( localName = "root" )
+    record ChatResponse( @JacksonXmlProperty( localName = "type" ) String type, @JacksonXmlProperty( localName = "payload" ) Payload payload ) { }
+
+    record Payload( @JacksonXmlProperty( localName = "from" ) String from, @JacksonXmlProperty( localName = "message" ) String message ) { }
 
     @TestConfiguration
     static class TestConfig {
