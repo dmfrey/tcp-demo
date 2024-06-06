@@ -30,6 +30,7 @@ dependencies {
 
 	// Test dependencies
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.integration:spring-integration-test-support'
 	testImplementation 'org.springframework.integration:spring-integration-test'
 
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

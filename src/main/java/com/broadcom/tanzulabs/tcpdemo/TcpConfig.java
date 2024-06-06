@@ -6,8 +6,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
+import org.springframework.integration.annotation.EndpointId;
 import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.channel.DirectChannel;
+import org.springframework.integration.config.EnableIntegration;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.ip.IpHeaders;
 import org.springframework.integration.ip.dsl.Tcp;
@@ -25,6 +27,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Configuration
+@EnableIntegration
 public class TcpConfig {
 
     @Configuration
@@ -44,7 +47,7 @@ public class TcpConfig {
         public IntegrationFlow inboundFlow( AbstractServerConnectionFactory serverConnectionFactory ) {
 
             return IntegrationFlow
-                    .from( Tcp.inboundAdapter( serverConnectionFactory ) )
+                    .from( Tcp.inboundAdapter( serverConnectionFactory ).id( "tcp-request-endpoint" ) )
                     .enrichHeaders( h -> h.headerExpression("type", "#jsonPath(payload, '$.type')" ) )
                     .enrichHeaders( h -> h.headerExpression("action", "#jsonPath(payload, '$.action')" ) )
                     .transform( "#jsonPath(payload, '$.payload')" )
@@ -81,7 +84,6 @@ public class TcpConfig {
         public IntegrationFlow commandHandler( MessageChannel commandChannel, MessageChannel replyChannel ) {
 
             return IntegrationFlow.from( commandChannel )
-//                    .transform( Transformers.fromJson( Map.class ) )
                     .handle( Map.class, (p, h) -> {
                         log.info( "handle command message : enter" );
 
@@ -131,7 +133,6 @@ public class TcpConfig {
         public IntegrationFlow chatHandler( MessageChannel chatChannel, MessageChannel replyChannel ) {
 
             return IntegrationFlow.from( chatChannel )
-//                    .transform( Transformers.fromJson( Map.class ) )
                     .handle( Map.class, (p, h) -> {
                         log.info( "handle chat message : enter" );
 
@@ -186,6 +187,7 @@ public class TcpConfig {
         }
 
         @Bean
+        @EndpointId( "reply-tcp-endpoint" )
         @ServiceActivator( inputChannel = "replyChannel" )
         public TcpSendingMessageHandler outboundMessageHandler( AbstractServerConnectionFactory serverConnectionFactory ) {
 
@@ -197,6 +199,7 @@ public class TcpConfig {
 
         @Bean
         public MessageChannel replyChannel() {
+
             return new DirectChannel();
         }
 
