@@ -23,8 +23,6 @@ import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.GenericMessage;
 
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Configuration
 @EnableIntegration
@@ -35,8 +33,13 @@ public class TcpConfig {
 
         private final Logger log = LoggerFactory.getLogger( ChatServer.class );
 
-        private final Set<String> clients = ConcurrentHashMap.newKeySet();
-        private final Map<String, String> clientUsernames = new ConcurrentHashMap<>();
+        private final ClientService clientService;
+
+        ChatServer( final ClientService clientService ) {
+
+            this.clientService = clientService;
+
+        }
 
         @Bean
         public TcpNetServerConnectionFactorySpec serverConnectionFactory( @Value( "${tcp.server.port:9876}" ) int tcpServerPort ) {
@@ -95,29 +98,27 @@ public class TcpConfig {
                         switch( action ) {
                             case login:
 
-                                this.clientUsernames.putIfAbsent( connectionId, (String) p.get( "username" ) );
+                                var loggedIn = this.clientService.login( connectionId, (String) p.get( "username" ) );
 
                                 response =
                                         """
                                         {
-                                            'status': 'login succeeded!'
+                                            'status': 'login %s!'
                                         }
-                                        """;
-                                log.info( "login user [{}, {}]", connectionId, p.get( "username" ) );
+                                        """.formatted( loggedIn ? "succeeded" : "failed" );
 
                                 break;
 
                             case logout:
 
-                                this.clientUsernames.remove( connectionId );
+                                var loggedOut = this.clientService.logout( connectionId, (String) p.get( "username" ) );
 
                                 response =
                                         """
                                         {
-                                            'status': 'logout succeeded!'
+                                            'status': 'logout %s!'
                                         }
-                                        """;
-                                log.info( "logout user [{}, {}]", connectionId, p.get( "username" ) );
+                                        """.formatted( loggedOut ? "succeeded" : "failed" );
 
                                 break;
                         }
@@ -137,50 +138,43 @@ public class TcpConfig {
                         log.info( "handle chat message : enter" );
 
                         log.info( "message: [{}, {}]", h, p );
-                        log.info( "clients: [{}]", this.clientUsernames );
 
                         var connectionId = (String) h.get( IpHeaders.CONNECTION_ID );
                         var to = (String) p.get( "to" );
-                        var from =
-                                this.clientUsernames.entrySet().stream()
-                                        .filter( e -> e.getKey().equals( connectionId ) )
-                                        .map( Map.Entry::getValue )
-                                        .findFirst();
 
+                        var from = this.clientService.getUsername( connectionId );
                         if( from.isPresent() ) {
-
-                            var sendToConnection = this.clientUsernames.entrySet().stream()
-                                    .filter( e -> e.getValue().equals( to ) )
-                                    .map( Map.Entry::getKey )
-                                    .findFirst()
-                                    .get();
 
                             var message = (String) p.get( "message" );
 
-                            var responsePayload =
-                                    """
-                                    {
-                                        "type": "chatResponse",
-                                        "payload": {
-                                            "from": "%s",
-                                            "message": "%s"
+                            var sendToConnection = this.clientService.getConnection( to );
+                            if( sendToConnection.isPresent() ) {
+
+                                var responsePayload =
+                                        """
+                                        {
+                                            "type": "chatResponse",
+                                            "payload": {
+                                                "from": "%s",
+                                                "message": "%s"
+                                            }
                                         }
-                                    }
-                                    """.formatted( from.get(), message );
+                                        """.formatted( from.get(), message );
 
-                            log.info( "handle chat message : exit" );
-                            return new GenericMessage<>( responsePayload, Map.of( IpHeaders.CONNECTION_ID, sendToConnection ) );
-
-                        } else {
-
-                            log.info( "error sending chat message!" );
-                            return """
-                                    {
-                                        'status': 'chat sent!'
-                                    }
-                                    """;
+                                log.info( "handle chat message : exit" );
+                                return new GenericMessage<>( responsePayload, Map.of( IpHeaders.CONNECTION_ID, sendToConnection.get() ) );
+                            }
 
                         }
+
+                        log.info( "error sending chat message!" );
+                        return
+                            """
+                            {
+                                'status': 'chat not sent!'
+                            }
+                            """;
+
                     })
                     .channel( replyChannel )
                     .get();
@@ -206,20 +200,14 @@ public class TcpConfig {
         @EventListener
         public void open( TcpConnectionOpenEvent event ) {
 
-            if( !this.clients.contains( event.getConnectionId() ) ) {
-
-                this.clients.add( event.getConnectionId() );
-                log.info( "client [{}] registered!", event.getConnectionId() );
-
-            }
+            this.clientService.registerConnection( event.getConnectionId() );
 
         }
 
         @EventListener
         public void close( TcpConnectionCloseEvent event ) {
 
-            this.clients.remove( event.getConnectionId() );
-            log.info( "client [{}] unregistered!", event.getConnectionId() );
+            this.clientService.removeConnection( event.getConnectionId() );
 
         }
 
