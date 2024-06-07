@@ -23,8 +23,6 @@ import org.springframework.integration.ip.tcp.connection.TcpConnectionCloseEvent
 import org.springframework.integration.ip.tcp.connection.TcpConnectionOpenEvent;
 import org.springframework.integration.router.HeaderValueRouter;
 import org.springframework.integration.support.json.Jackson2JsonObjectMapper;
-import org.springframework.integration.xml.transformer.ResultToStringTransformer;
-import org.springframework.integration.xml.transformer.ResultTransformer;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.GenericMessage;
 
@@ -59,12 +57,6 @@ public class TcpConfig {
         public Jackson2JsonObjectMapper jackson2JsonObjectMapper( ObjectMapper objectMapper ) {
 
             return new Jackson2JsonObjectMapper( objectMapper );
-        }
-
-        @Bean
-        public ResultTransformer resultTransformer() {
-
-            return new ResultToStringTransformer();
         }
 
         @Bean
