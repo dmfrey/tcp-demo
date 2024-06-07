@@ -8,8 +8,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
+import org.springframework.integration.annotation.EndpointId;
 import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.channel.DirectChannel;
+import org.springframework.integration.config.EnableIntegration;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.Transformers;
 import org.springframework.integration.ip.IpHeaders;
@@ -21,14 +23,15 @@ import org.springframework.integration.ip.tcp.connection.TcpConnectionCloseEvent
 import org.springframework.integration.ip.tcp.connection.TcpConnectionOpenEvent;
 import org.springframework.integration.router.HeaderValueRouter;
 import org.springframework.integration.support.json.Jackson2JsonObjectMapper;
+import org.springframework.integration.xml.transformer.ResultToStringTransformer;
+import org.springframework.integration.xml.transformer.ResultTransformer;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.GenericMessage;
 
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Configuration
+@EnableIntegration
 public class TcpConfig {
 
     @Configuration
@@ -36,8 +39,13 @@ public class TcpConfig {
 
         private final Logger log = LoggerFactory.getLogger( ChatServer.class );
 
-        private final Set<String> clients = ConcurrentHashMap.newKeySet();
-        private final Map<String, String> clientUsernames = new ConcurrentHashMap<>();
+        private final ClientService clientService;
+
+        ChatServer( final ClientService clientService ) {
+
+            this.clientService = clientService;
+
+        }
 
         @Bean
         public ObjectMapper objectMapper() {
@@ -54,17 +62,31 @@ public class TcpConfig {
         }
 
         @Bean
+        public ResultTransformer resultTransformer() {
+
+            return new ResultToStringTransformer();
+        }
+
+        @Bean
         public TcpNetServerConnectionFactorySpec serverConnectionFactory( @Value( "${tcp.server.port:9876}" ) int tcpServerPort ) {
             return Tcp.netServer( tcpServerPort );
         }
 
         @Bean
-        public IntegrationFlow inboundFlow( AbstractServerConnectionFactory serverConnectionFactory ) {
+        public IntegrationFlow inboundFlow( AbstractServerConnectionFactory serverConnectionFactory, Jackson2JsonObjectMapper jackson2JsonObjectMapper ) {
 
             return IntegrationFlow
-                    .from( Tcp.inboundAdapter( serverConnectionFactory ) )
+                    .from( Tcp.inboundAdapter( serverConnectionFactory ).id( "tcp-request-endpoint" ) )
                     .enrichHeaders( h -> h.headerExpression("type", "#xpath(payload, '/root/type')" ) )
                     .enrichHeaders( h -> h.headerExpression("action", "#xpath(payload, '/root/action')" ) )
+                    .transform( Transformers.fromJson( jackson2JsonObjectMapper ) )
+                    .transform( m -> {
+                        log.info( "m [{}]", m );
+                        Map<?, ?> message = (Map<?, ?>) m;
+                        log.info( "message [{}]", message );
+
+                        return message.get( "payload" );
+                    })
                     .route( headerRouter() )
                     .get();
         }
@@ -95,16 +117,13 @@ public class TcpConfig {
         enum Actions { login, logout };
 
         @Bean
-        public IntegrationFlow commandHandler( MessageChannel commandChannel, MessageChannel replyChannel, Jackson2JsonObjectMapper jackson2JsonObjectMapper ) {
+        public IntegrationFlow commandHandler( MessageChannel commandChannel, MessageChannel replyChannel ) {
 
             return IntegrationFlow.from( commandChannel )
-                    .transform( Transformers.fromJson( jackson2JsonObjectMapper ) )
                     .handle( Map.class, (p, h) -> {
                         log.info( "handle command message : enter" );
 
                         log.info( "message: headers=[{}], payload=[{}]", h, p );
-                        Map<String, String> payload = (Map<String, String>) p.get( "payload" );
-                        log.info( "payload: [{}]", payload );
 
                         var response = "";
                         var connectionId = (String) h.get( IpHeaders.CONNECTION_ID );
@@ -112,29 +131,27 @@ public class TcpConfig {
                         switch( action ) {
                             case login:
 
-                                this.clientUsernames.putIfAbsent( connectionId, payload.get( "username" ) );
+                                var loggedIn = this.clientService.login( connectionId, (String) p.get( "username" ) );
 
                                 response =
                                         """
                                         <root>
-                                            <status>login succeeded!</status>
+                                            <status>login %s!</status>
                                         </root>
-                                        """;
-                                log.info( "login user [{}, {}]", connectionId, payload.get( "username" ) );
+                                        """.formatted( loggedIn ? "succeeded" : "failed" );;
 
                                 break;
 
                             case logout:
 
-                                this.clientUsernames.remove( connectionId );
+                                var loggedOut = this.clientService.logout( connectionId, (String) p.get( "username" ) );
 
                                 response =
                                         """
                                         <root>
-                                            <status>logout succeeded!</status>
+                                            <status>logout %s!</status>
                                         </root>
-                                        """;
-                                log.info( "logout user [{}, {}]", connectionId, payload.get( "username" ) );
+                                        """.formatted( loggedOut ? "succeeded" : "failed" );
 
                                 break;
                         }
@@ -147,71 +164,60 @@ public class TcpConfig {
         }
 
         @Bean
-        public IntegrationFlow chatHandler( MessageChannel chatChannel, MessageChannel replyChannel, Jackson2JsonObjectMapper jackson2JsonObjectMapper ) {
+        public IntegrationFlow chatHandler( MessageChannel chatChannel, MessageChannel replyChannel ) {
 
             return IntegrationFlow.from( chatChannel )
-                    .transform( Transformers.fromJson( jackson2JsonObjectMapper ) )
                     .handle( Map.class, (p, h) -> {
                         log.info( "handle chat message : enter" );
 
                         log.info( "message: [{}, {}]", h, p );
-                        Map<String, String> payload = (Map<String, String>) p.get( "payload" );
-                        log.info( "payload: [{}]", payload );
-
-                        log.info( "clients: [{}]", this.clientUsernames );
 
                         var connectionId = (String) h.get( IpHeaders.CONNECTION_ID );
-                        var to = (String) payload.get( "to" );
-                        var from =
-                                this.clientUsernames.entrySet().stream()
-                                        .filter( e -> e.getKey().equals( connectionId ) )
-                                        .map( Map.Entry::getValue )
-                                        .findFirst();
+                        var to = (String) p.get( "to" );
 
+                        var from = this.clientService.getUsername( connectionId );
                         if( from.isPresent() ) {
 
-                            var sendToConnection = this.clientUsernames.entrySet().stream()
-                                    .filter( e -> e.getValue().equals( to ) )
-                                    .map( Map.Entry::getKey )
-                                    .findFirst()
-                                    .get();
+                            var message = (String) p.get( "message" );
 
-                            var message = (String) payload.get( "message" );
+                            var sendToConnection = this.clientService.getConnection( to );
+                            if( sendToConnection.isPresent() ) {
 
-                            var responsePayload =
-                                    """
-                                    <root>
-                                        <type>chatResponse</type>
-                                        <payload>
-                                            <from>%s</from>
-                                            <message>%s</message>
-                                        </payload>
-                                    </root>
-                                    """.formatted( from.get(), message );
+                                var responsePayload =
+                                        """
+                                        <root>
+                                            <type>chatResponse</type>
+                                            <payload>
+                                                <from>%s</from>
+                                                <message>%s</message>
+                                            </payload>
+                                        </root>
+                                        """.formatted( from.get(), message );
 
-                            log.info( "handle chat message : exit" );
-                            return new GenericMessage<>( responsePayload, Map.of( IpHeaders.CONNECTION_ID, sendToConnection ) );
-
-                        } else {
-
-                            log.info( "error sending chat message!" );
-                            return """
-                                    <root>
-                                        <type>chatResponse</type>
-                                        <payload>
-                                            <from>%s</from>
-                                            <message>chat NOT sent!</message>
-                                        </payload>
-                                    </root>
-                                    """.formatted( from.get() );
+                                log.info( "handle chat message : exit" );
+                                return new GenericMessage<>( responsePayload, Map.of( IpHeaders.CONNECTION_ID, sendToConnection.get() ) );
+                            }
 
                         }
+
+                        log.info( "error sending chat message!" );
+                        return
+                            """
+                            <root>
+                                <type>chatResponse</type>
+                                <payload>
+                                    <message>chat not sent!</message>
+                                </payload>
+                            </root>
+                            """;
+
                     })
                     .channel( replyChannel )
                     .get();
         }
 
         @Bean
+        @EndpointId( "reply-tcp-endpoint" )
         @ServiceActivator( inputChannel = "replyChannel" )
         public TcpSendingMessageHandler outboundMessageHandler( AbstractServerConnectionFactory serverConnectionFactory ) {
 
@@ -223,26 +229,21 @@ public class TcpConfig {
 
         @Bean
         public MessageChannel replyChannel() {
+
             return new DirectChannel();
         }
 
         @EventListener
         public void open( TcpConnectionOpenEvent event ) {
 
-            if( !this.clients.contains( event.getConnectionId() ) ) {
-
-                this.clients.add( event.getConnectionId() );
-                log.info( "client [{}] registered!", event.getConnectionId() );
-
-            }
+            this.clientService.registerConnection( event.getConnectionId() );
 
         }
 
         @EventListener
         public void close( TcpConnectionCloseEvent event ) {
 
-            this.clients.remove( event.getConnectionId() );
-            log.info( "client [{}] unregistered!", event.getConnectionId() );
+            this.clientService.removeConnection( event.getConnectionId() );
 
         }
 
