@@ -45,7 +45,7 @@ public class BroadcastHandlerTests {
     void testBroadcast() {
 
         when( this.mockClientService.getUsername( fakeSenderConnectionId ) ).thenReturn( Optional.of( fakeSenderUsername ) );
-        when( this.mockClientService.getLoggedInConnections() ).thenReturn( List.of( fakeReceiverConnectionId ) );
+        when( this.mockClientService.getLoggedInConnections() ).thenReturn( List.of( fakeSenderConnectionId, fakeReceiverConnectionId ) );
 
         ArgumentCaptor<Message<?>> messageArgumentCaptor = MockIntegration.messageArgumentCaptor();
         MockMessageHandler mockMessageHandler =
