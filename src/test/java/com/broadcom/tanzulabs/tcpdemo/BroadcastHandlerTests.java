@@ -66,23 +66,28 @@ public class BroadcastHandlerTests {
         // Send the message to the Command Channel
         this.broadcastChannel.send( fakePayload );
 
-        // Get the Message from the ArgumentCaptor, extract the payload and verify it's contents
-        assertThat( messageArgumentCaptor.getValue().getPayload() ).isEqualTo(
-                """
-                <root>
-                    <type>chatResponse</type>
-                    <payload>
-                        <from>%s</from>
-                        <message>%s</message>
-                    </payload>
-                </root>
-                """.formatted( fakeSenderUsername, fakeSenderMessage )
-        );
+        var expected =
+            """
+            <root>
+                <type>chatResponse</type>
+                <payload>
+                    <from>%s</from>
+                    <message>%s</message>
+                </payload>
+            </root>
+            """.formatted( fakeSenderUsername, fakeSenderMessage );
 
-//        assertThat( messageArgumentCaptor.getValue().getHeaders().get( IpHeaders.CONNECTION_ID ) ).isEqualTo( fakeReceiver1ConnectionId );
+        // Get the Messages from the ArgumentCaptor, extract the payload and verify its contents to `expected`
+        assertThat( messageArgumentCaptor.getAllValues() )
+                .map( message -> (String) message.getPayload())
+                .containsExactly( expected, expected )
+                .size()
+                .returnToIterable()
+                .hasSize( 2 );
 
         assertThat( messageArgumentCaptor.getAllValues() )
                 .map( message -> message.getHeaders().get( IpHeaders.CONNECTION_ID ) )
+                .contains( fakeReceiver1ConnectionId, fakeReceiver2ConnectionId )
                 .size()
                 .returnToIterable()
                 .hasSize( 2 );

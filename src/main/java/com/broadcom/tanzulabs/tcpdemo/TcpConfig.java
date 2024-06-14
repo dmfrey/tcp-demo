@@ -220,7 +220,9 @@ public class TcpConfig {
         @Bean
         public IntegrationFlow broadcastHandler( MessageChannel broadcastChannel, MessageChannel replyChannel ) {
 
+            // Receive Message
             return IntegrationFlow.from( broadcastChannel )
+                    // Transform Message
                     .handle( Map.class, (p, h) -> {
                         log.info( "handle broadcast message : enter" );
 
@@ -244,10 +246,13 @@ public class TcpConfig {
                                 """.formatted( from.get(), message );
 
                     })
+                    // Send message to each connected client
                     .splitWith(
                             s -> s.expectedType( Message.class )
                                     .function( m -> this.clientService.getLoggedInConnections().stream()
+                                            // don't send it to myself
                                             .filter( connectionId -> !connectionId.equals( ( (Message<?>) m ).getHeaders().get( IpHeaders.CONNECTION_ID ) ))
+                                            // map each connectionId to a new message
                                             .map( connectionId ->
                                                     MessageBuilder.fromMessage( (Message<?>) m )
                                                             .setHeader( IpHeaders.CONNECTION_ID, connectionId )
