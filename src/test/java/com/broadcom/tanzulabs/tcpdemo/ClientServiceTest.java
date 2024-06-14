@@ -60,6 +60,17 @@ class ClientServiceTest {
     }
 
     @Test
+    void getLoggedInConnections() {
+
+        subject.registerConnection( fakeConnectionId );
+        subject.login( fakeConnectionId, fakeUsername );
+
+        var actual = subject.getLoggedInConnections();
+        assertThat( actual ).hasSize( 1 );
+
+    }
+
+    @Test
     void getUsername() {
 
         subject.registerConnection( fakeConnectionId );

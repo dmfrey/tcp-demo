@@ -23,8 +23,10 @@ import org.springframework.integration.ip.tcp.connection.TcpConnectionCloseEvent
 import org.springframework.integration.ip.tcp.connection.TcpConnectionOpenEvent;
 import org.springframework.integration.router.HeaderValueRouter;
 import org.springframework.integration.support.json.Jackson2JsonObjectMapper;
+import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.support.GenericMessage;
+import org.springframework.messaging.support.MessageBuilder;
 
 import java.util.Map;
 
@@ -90,6 +92,7 @@ public class TcpConfig {
             router.setResolutionRequired( false );
             router.setChannelMapping("command", "commandChannel" );
             router.setChannelMapping("chat", "chatChannel" );
+            router.setChannelMapping("broadcast", "broadcastChannel" );
 
             return router;
         }
@@ -102,6 +105,12 @@ public class TcpConfig {
 
         @Bean
         public MessageChannel chatChannel() {
+
+            return new DirectChannel();
+        }
+
+        @Bean
+        public MessageChannel broadcastChannel() {
 
             return new DirectChannel();
         }
@@ -204,6 +213,48 @@ public class TcpConfig {
                             """;
 
                     })
+                    .channel( replyChannel )
+                    .get();
+        }
+
+        @Bean
+        public IntegrationFlow broadcastHandler( MessageChannel broadcastChannel, MessageChannel replyChannel ) {
+
+            return IntegrationFlow.from( broadcastChannel )
+                    .handle( Map.class, (p, h) -> {
+                        log.info( "handle broadcast message : enter" );
+
+                        log.info( "message: [{}, {}]", h, p );
+
+                        var connectionId = (String) h.get( IpHeaders.CONNECTION_ID );
+
+                        var from = this.clientService.getUsername( connectionId );
+
+                        var message = (String) p.get( "message" );
+
+                        log.info( "handle broadcast message : exit" );
+                        return  """
+                                <root>
+                                    <type>chatResponse</type>
+                                    <payload>
+                                        <from>%s</from>
+                                        <message>%s</message>
+                                    </payload>
+                                </root>
+                                """.formatted( from.get(), message );
+
+                    })
+                    .splitWith(
+                            s -> s.expectedType( Message.class )
+                                    .function( m -> this.clientService.getLoggedInConnections().stream()
+                                            .filter( connectionId -> !connectionId.equals( ( (Message<?>) m ).getHeaders().get( IpHeaders.CONNECTION_ID ) ))
+                                            .map( connectionId ->
+                                                    MessageBuilder.fromMessage( (Message<?>) m )
+                                                            .setHeader( IpHeaders.CONNECTION_ID, connectionId )
+                                                            .build()
+                                            )
+                                    )
+                    )
                     .channel( replyChannel )
                     .get();
         }

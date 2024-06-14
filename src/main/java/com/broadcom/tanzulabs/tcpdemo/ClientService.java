@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -88,6 +89,14 @@ public class ClientService {
                 .filter( e -> e.getValue().equals( username ) )
                 .map( Map.Entry::getKey )
                 .findFirst();
+    }
+
+    public List<String> getLoggedInConnections() {
+
+        return this.clientUsernames.entrySet().stream()
+                .filter( e -> !e.getValue().isEmpty() )
+                .map( Map.Entry::getKey )
+                .toList();
     }
 
     public Optional<String> getUsername(String connectionId ) {
