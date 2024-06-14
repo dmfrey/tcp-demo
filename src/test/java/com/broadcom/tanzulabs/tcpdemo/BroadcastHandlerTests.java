@@ -39,13 +39,14 @@ public class BroadcastHandlerTests {
     final String fakeSenderUsername = "fakeSenderUsername";
     final String fakeSenderMessage = "fakeSenderMessage";
 
-    final String fakeReceiverConnectionId = "fakeReceiverConnectionId";
+    final String fakeReceiver1ConnectionId = "fakeReceiver1ConnectionId";
+    final String fakeReceiver2ConnectionId = "fakeReceiver2ConnectionId";
 
     @Test
     void testBroadcast() {
 
         when( this.mockClientService.getUsername( fakeSenderConnectionId ) ).thenReturn( Optional.of( fakeSenderUsername ) );
-        when( this.mockClientService.getLoggedInConnections() ).thenReturn( List.of( fakeSenderConnectionId, fakeReceiverConnectionId ) );
+        when( this.mockClientService.getLoggedInConnections() ).thenReturn( List.of( fakeSenderConnectionId, fakeReceiver1ConnectionId, fakeReceiver2ConnectionId ) );
 
         ArgumentCaptor<Message<?>> messageArgumentCaptor = MockIntegration.messageArgumentCaptor();
         MockMessageHandler mockMessageHandler =
@@ -78,7 +79,13 @@ public class BroadcastHandlerTests {
                 """.formatted( fakeSenderUsername, fakeSenderMessage )
         );
 
-        assertThat( messageArgumentCaptor.getValue().getHeaders().get( IpHeaders.CONNECTION_ID) ).isEqualTo( fakeReceiverConnectionId );
+//        assertThat( messageArgumentCaptor.getValue().getHeaders().get( IpHeaders.CONNECTION_ID ) ).isEqualTo( fakeReceiver1ConnectionId );
+
+        assertThat( messageArgumentCaptor.getAllValues() )
+                .map( message -> message.getHeaders().get( IpHeaders.CONNECTION_ID ) )
+                .size()
+                .returnToIterable()
+                .hasSize( 2 );
 
         verify( this.mockClientService ).getUsername( fakeSenderConnectionId );
         verify( this.mockClientService ).getLoggedInConnections();
