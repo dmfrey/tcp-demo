@@ -80,17 +80,11 @@ public class BroadcastHandlerTests {
         // Get the Messages from the ArgumentCaptor, extract the payload and verify its contents to `expected`
         assertThat( messageArgumentCaptor.getAllValues() )
                 .map( message -> (String) message.getPayload())
-                .containsExactly( expected, expected )
-                .size()
-                .returnToIterable()
-                .hasSize( 2 );
+                .containsOnly( expected, expected );
 
         assertThat( messageArgumentCaptor.getAllValues() )
                 .map( message -> message.getHeaders().get( IpHeaders.CONNECTION_ID ) )
-                .contains( fakeReceiver1ConnectionId, fakeReceiver2ConnectionId )
-                .size()
-                .returnToIterable()
-                .hasSize( 2 );
+                .containsOnly( fakeReceiver1ConnectionId, fakeReceiver2ConnectionId );
 
         verify( this.mockClientService ).getUsername( fakeSenderConnectionId );
         verify( this.mockClientService ).getLoggedInConnections();
