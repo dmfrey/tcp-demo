@@ -18,10 +18,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class DemoConfigTests {
 
     @Autowired
-    DirectChannel splitMultipleInputChannel;
+    DirectChannel inputChannel;
 
     @Autowired
-    DirectChannel splitMultipleOutputChannel;
+    DirectChannel replyChannel;
 
     @Test
     void test() {
@@ -31,34 +31,38 @@ public class DemoConfigTests {
                 MockIntegration.mockMessageHandler( messageArgumentCaptor )
                         .handleNext( m -> {} );
 
-        this.splitMultipleOutputChannel.subscribe( mockMessageHandler );
+        this.replyChannel.subscribe( mockMessageHandler );
 
         var fakeMessage =
                 """
                 <?xml version="1.0" encoding="UTF-8"?>
-                <event>
+                <event type="abc">
                     <device>ANDROID-abc123</device>
                 </event><?xml version="1.0"?>
-                <event>
+                <event type="def">
                     <device>ANDROID-abc123</device>
                 </event><?xml version="1.0"?>
-                <event>
+                <event type="def">
                     <device>ANDROID-abc123</device>
                 </event><?xml version="1.0"?>
-                <event>
+                <event type="def">
                     <device>ANDROID-abc123</device>
                 </event>
                 """;
 
-        this.splitMultipleInputChannel.send( MessageBuilder.withPayload( fakeMessage ).build() );
+        this.inputChannel.send( MessageBuilder.withPayload( fakeMessage ).build() );
+
+        var expected =
+                """
+                <event type="abc">
+                    <device>ANDROID-abc123</device></event>""";
 
         assertThat( messageArgumentCaptor.getValue().getPayload() ).isNotNull();
 
         var actual = messageArgumentCaptor.getValue();
-        String[] documents = (String[]) actual.getPayload();
-        assertThat( documents ).hasSize( 4 );
+        assertThat( actual.getPayload() ).isEqualTo( expected );
 
-        this.splitMultipleOutputChannel.unsubscribe( mockMessageHandler );
+        this.replyChannel.unsubscribe( mockMessageHandler );
 
     }
 

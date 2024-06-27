@@ -62,8 +62,14 @@ public class TcpConfig {
         }
 
         @Bean
-        public TcpNetServerConnectionFactorySpec serverConnectionFactory( @Value( "${tcp.server.port:9876}" ) int tcpServerPort ) {
-            return Tcp.netServer( tcpServerPort );
+        EventSerializer eventSerializer() {
+
+            return new EventSerializer();
+        }
+
+        @Bean
+        public TcpNetServerConnectionFactorySpec serverConnectionFactory( @Value( "${tcp.server.port:9876}" ) int tcpServerPort, EventSerializer eventSerializer ) {
+            return Tcp.netServer( tcpServerPort ).serializer( eventSerializer ).deserializer( eventSerializer );
         }
 
         @Bean
